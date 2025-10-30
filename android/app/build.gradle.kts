@@ -24,7 +24,7 @@ android {
         applicationId = "com.example.sweethomeflutter"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = 16
+        minSdk = flutter.minSdkVersion
         targetSdk = 33
         versionCode = 1
         versionName = "1.0"

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:kakao_flutter_sdk/kakao_flutter_sdk.dart';
+import 'package:sweethomeflutter/screens/chat_list.dart';
+import 'package:sweethomeflutter/screens/login.dart';
 
 import 'screens/home_page.dart';
 
@@ -22,10 +24,11 @@ class HSHApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: '홈스위트홈 채팅',
       initialRoute: '/',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-      ),
-      home: HomePage(),
+      routes: {
+        '/': (context) => HomePage(),
+        '/login': (context) => Login(),
+        '/chat': (context) => ChatList(),
+      },
     );
   }
 }

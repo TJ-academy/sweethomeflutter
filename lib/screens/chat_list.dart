@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../models/chat_room.dart';
-import '../services/api_service.dart';
 
 class ChatList extends StatefulWidget {
   const ChatList({super.key});
@@ -12,7 +11,6 @@ class ChatList extends StatefulWidget {
 class _ChatListState extends State<ChatList> {
   List<ChatRoom> rooms = [];
   bool loading = true;
-  final ApiService _api = ApiService();
 
   @override
   void initState() {

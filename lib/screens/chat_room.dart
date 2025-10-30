@@ -1,7 +1,6 @@
 // import 'package:flutter/material.dart';
 // import '../models/chat_room.dart';
 // import '../models/chat_message.dart';
-// import '../services/api_service.dart';
 //
 // class ChatRoomPage extends StatefulWidget {
 //   final ChatRoom room;
@@ -16,7 +15,6 @@
 //   List<ChatMessage> messages = [];
 //   final TextEditingController _controller = TextEditingController();
 //   bool loading = true;
-//   final ApiService _api = ApiService();
 //
 //   @override
 //   void initState() {

@@ -1,45 +1,74 @@
-import 'package:dio/dio.dart';
-import 'package:sweethomeflutter/services/api_service.dart';
-import 'package:sweethomeflutter/models/user.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import '../models/user.dart';
 
 class AuthService {
-  final ApiService _api = ApiService();
+  static final AuthService _instance = AuthService._internal();
+  factory AuthService() => _instance;
+  AuthService._internal();
 
-  /// 로그인 (Spring 세션 방식)
+  final String baseUrl = 'http://localhost:8080/api';
+  final http.Client _client = http.Client();
+  String? _jwt;
+
+  /// 로그인
   Future<bool> login(String email, String password) async {
     try {
-      Response res = await _api.post('/user/login', data: {
-        'email': email,
-        'password': password,
-      });
-      // 성공 시 redirect 대신 200 OK만 받는다면 true 반환
-      return res.statusCode == 200;
+      final res = await _client.post(
+        Uri.parse('$baseUrl/user/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email, 'password': password}),
+      );
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        _jwt = data['token']; // 서버에서 발급한 JWT
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('jwt_token', _jwt!);
+        return true;
+      }
+      return false;
     } catch (e) {
       print('Login error: $e');
       return false;
     }
   }
 
-  /// 로그아웃
-  Future<void> logout() async {
-    try {
-      await _api.get('/user/logout');
-      await _api.clearCookies();
-    } catch (e) {
-      print('Logout error: $e');
+  /// JWT 포함 헤더
+  Map<String, String> get _headers {
+    final headers = {'Content-Type': 'application/json'};
+    if (_jwt != null) {
+      headers['Authorization'] = 'Bearer $_jwt';
     }
+    return headers;
   }
 
-  /// 현재 세션 유저 가져오기
+  /// 로그인 유저 확인
   Future<User?> session() async {
+    final prefs = await SharedPreferences.getInstance();
+    _jwt = prefs.getString('jwt_token');
+    if (_jwt == null) return null;
+
     try {
-      Response res = await _api.get('/user/session');
-      if (res.statusCode == 200 && res.data['loginId'] != null) {
-        return User.fromJson(res.data);
+      final res = await _client.get(
+        Uri.parse('$baseUrl/user/session'),
+        headers: _headers,
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return User.fromJson(data['user']);
       }
     } catch (e) {
       print('Session error: $e');
     }
     return null;
+  }
+
+  /// 로그아웃
+  Future<void> logout() async {
+    _jwt = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('jwt_token');
   }
 }

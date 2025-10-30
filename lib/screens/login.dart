@@ -28,13 +28,15 @@ class _LoginState extends State<Login> {
       _error = null;
     });
 
-    bool success = await _authService.login(emailController.text, passwordController.text);
+    bool success = await _authService.login(
+        emailController.text.trim(), passwordController.text.trim());
 
     setState(() {
       _isLoading = false;
     });
 
     if (success) {
+      print("성공?");
       Navigator.pushReplacementNamed(context, '/');
     } else {
       setState(() {
@@ -87,13 +89,13 @@ class _LoginState extends State<Login> {
               },
               child: const Text('카카오 로그인'),
             ),
-            const SizedBox(height: 20),
-            TextButton(
-              onPressed: () {
-                // 회원가입 웹페이지로 이동
-              },
-              child: const Text('회원가입'),
-            ),
+            // const SizedBox(height: 20),
+            // TextButton(
+            //   onPressed: () {
+            //     // 회원가입 웹페이지로 이동
+            //   },
+            //   child: const Text('회원가입'),
+            // ),
           ],
         ),
       ),
