@@ -1,101 +1,95 @@
 import 'package:flutter/material.dart';
-import 'package:sweethomeflutter/screens/home_screen.dart';
-import 'package:sweethomeflutter/screens/kakao_login.dart';
-import 'package:sweethomeflutter/screens/kakao_login_vew_model.dart';
-import '../services/auth_service.dart';
+import '../api_client.dart';
 
 class Login extends StatefulWidget {
-  const Login({super.key});
+  final ApiClient api;
+  final void Function(String email, String nickname, String profileImg, String token) onLoggedIn;
+  const Login({super.key, required this.api, required this.onLoggedIn});
 
   @override
   State<Login> createState() => _LoginState();
 }
 
 class _LoginState extends State<Login> {
-  final TextEditingController emailController = TextEditingController();
-  final TextEditingController passwordController = TextEditingController();
-
-  final AuthService _authService = AuthService();
-
-  final kakaoViewModel = KakaoLoginViewModel(KakaoLogin());
-
-  bool _isLoading = false;
-  String? _error;
+  final emailCtrl = TextEditingController(text: '');
+  final pwCtrl = TextEditingController(text: '');
+  bool working = false;
+  bool kakaoworking = false;
+  String? errorText;
 
   Future<void> _login() async {
     setState(() {
-      _isLoading = true;
-      _error = null;
+      working = true;
+      errorText = null;
     });
 
-    bool success = await _authService.login(
-        emailController.text.trim(), passwordController.text.trim());
+    try {
+      final r = await widget.api.login(emailCtrl.text.trim(), pwCtrl.text);
+      if(r.ok) {
+        widget.onLoggedIn(r.email ?? emailCtrl.text.trim(),
+            r.nickname ?? '알수없음', r.profileImg ?? '-',
+            r.token ?? '알수없음');
+      } else {
+        setState(() => errorText = r.error ?? '로그인에 실패했습니다.');
+      }
+    } finally {
+      if (mounted) setState(() => working = false);
+    }
+  }
 
+  Future<void> _loginWithKakao() async {
     setState(() {
-      _isLoading = false;
+      kakaoworking = true;
+      errorText = null;
     });
 
-    if (success) {
-      print("성공?");
-      Navigator.pushReplacementNamed(context, '/');
-    } else {
-      setState(() {
-        _error = "로그인 실패. 이메일과 비밀번호를 확인하세요.";
-      });
+    try {
+      final r = await widget.api.kakaologin();
+      if(r.ok) {
+        widget.onLoggedIn(r.email ?? '알수없음',
+            r.nickname ?? '알수없음',
+            r.profileImg ?? '-',
+            r.token ?? '알수없음');
+      } else {
+        setState(() => errorText = r.error ?? '로그인에 실패했습니다.');
+      }
+    } finally {
+      if (mounted) setState(() => kakaoworking = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final spacing = const SizedBox(height: 12,);
     return Scaffold(
       appBar: AppBar(title: const Text('로그인')),
       body: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
             TextField(
-              controller: emailController,
+              controller: emailCtrl,
               decoration: const InputDecoration(labelText: '이메일'),
             ),
+            spacing,
             TextField(
-              controller: passwordController,
+              controller: pwCtrl,
               decoration: const InputDecoration(labelText: '비밀번호'),
-              obscureText: true,
+              obscureText: true,  //암호 마스킹
             ),
-            const SizedBox(height: 20),
-            _isLoading
-                ? const CircularProgressIndicator()
-                : ElevatedButton(
-              onPressed: _login,
-              child: const Text('로그인'),
-            ),
-            const SizedBox(height: 10),
+            spacing,
+            if(errorText != null)
+              Text(errorText!, style: const TextStyle(color: Colors.red),),
+            spacing,
             ElevatedButton(
-              onPressed: () async {
-                // 카카오 로그인 함수 호출
-                await kakaoViewModel.login();
-                if (kakaoViewModel.isLogined) {
-                  setState(() {}); // 화면 갱신
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(builder: (_) => HomeScreen(viewModel: kakaoViewModel)),
-                  );
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('카카오 로그인 실패')),
-                  );
-                }
-              },
-              child: const Text('카카오 로그인'),
+              onPressed: working ? null : _login,
+              child: Text(working ? '로그인 중...' : '로그인'),
             ),
-            // const SizedBox(height: 20),
-            // TextButton(
-            //   onPressed: () {
-            //     // 회원가입 웹페이지로 이동
-            //   },
-            //   child: const Text('회원가입'),
-            // ),
+            spacing,
+            ElevatedButton(
+              onPressed: kakaoworking ? null : _loginWithKakao,
+              child: Text(kakaoworking ? '카카오로 로그인 중...' : '카카오로 로그인'),
+            ),
           ],
         ),
       ),
