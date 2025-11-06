@@ -6,12 +6,12 @@ import 'package:sweethomeflutter/screens/login.dart';
 import 'api_client.dart';
 
 void main() async {
-  // WidgetsFlutterBinding.ensureInitialized();
+  WidgetsFlutterBinding.ensureInitialized();
 
   //네이티브 앱 키 입력
   KakaoSdk.init(
     nativeAppKey: '448fefd44eb5aa40ff41fe337054604d',
-    javaScriptAppKey: 'd8541a69eebb24f3789c2bb2c5a49775',
+    //javaScriptAppKey: 'd8541a69eebb24f3789c2bb2c5a49775',
   );
 
   runApp(const HSHApp());

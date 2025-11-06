@@ -1,108 +1,123 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:http/browser_client.dart' as http_browser;
-import 'package:http/http.dart' as http;
+//import 'package:http/browser_client.dart' as http_browser;
+import 'package:http/http.dart' as http;   //모바일용
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:stomp_dart_client/stomp_dart_client.dart';
+import 'package:web_socket_channel/io.dart';   //모바일용 WebSocket
+
+/// 로그인 결과 모델
+class LoginResult {
+  final bool ok;
+  final String? email;
+  final String? nickname;
+  final String? profileImg;
+  final String? token;
+  final String? error;
+
+  LoginResult({
+    required this.ok,
+    this.email,
+    this.nickname,
+    this.profileImg,
+    this.token,
+    this.error,
+  });
+}
 
 class ApiClient {
   late final http.Client _client;
+  StompClient? _stompClient;
+  //String? token;
+  final String baseUrl;
 
-  ApiClient() {
-    final bc = http_browser.BrowserClient()..withCredentials = true;
-    _client = bc;
-  }
+  ApiClient({this.baseUrl = "http://192.168.0.104:8080"})
+  //ApiClient({this.baseUrl = "http://homesweethome.koyeb.app/"})
+      : _client = http.Client();
 
-  Future<({bool ok,
-  String? email,
-  String? nickname,
-  String? profileImg,
-  String? token,
-  String? error})> login(
-      String email,
-      String password,
-      ) async {
-    final uri = Uri.parse('http://192.168.0.104:8080/api/user/login');
+  Future<LoginResult> login(String email, String password) async {
+    final uri = Uri.parse('$baseUrl/api/user/login');
     try {
       //10초내에 응답을 못받으면 종료
       final res = await _client.post(
         uri,
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
         body: {'email': email, 'password': password},
-      )
-          .timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 10));
 
       if(res.statusCode == 200) {
-        final map = jsonDecode(res.body) as Map<String, dynamic>;
-        String token = (map['token'] ?? '').toString();
-        final emailId = (map['email'] ?? '알수없음').toString();
-        final name = (map['nickname'] ?? '알수없음').toString();
-        final profileUrl = (map['profileImg'] ?? '-').toString();
-        return (ok: true, email: emailId, nickname: name, profileImg: profileUrl, token: token, error: null);
+        final map = jsonDecode(res.body);
+        return LoginResult(
+          ok: true,
+          email: map['email']?.toString(),
+          nickname: map['nickname']?.toString(),
+          profileImg: makeImgUrl(map['profileImg']?.toString() ?? ''),
+          token: map['token']?.toString(),
+        );
       } else {
-        String? msg;
-        try {
-          final map = jsonDecode(res.body) as Map<String, dynamic>;
-          msg = (map['message'] ?? map['error'])?.toString();
-        } catch (_) {}
-        return (ok: false, email: null, nickname: null, profileImg: null, token: null, error: msg ?? '로그인에 실패했습니다.');
+        final map = jsonDecode(res.body);
+        return LoginResult(
+          ok: false,
+          error: (map['message'] ?? map['error'])?.toString() ?? '로그인 실패',
+        );
       }
     } on TimeoutException {
-      return (ok: false, email: null, nickname: null, profileImg: null, token: null, error: '서버 응답이 지연되고 있습니다.');
-    } catch(_) {
-      return (ok: false, email: null, nickname: null, profileImg: null, token: null, error: '네트워크 오류가 발생했습니다.');
+      return LoginResult(ok: false, error: '서버 응답 지연');
+    } catch (e) {
+      return LoginResult(ok: false, error: '네트워크 오류: $e');
     }
   }
 
-  Future<({bool ok,
-  String? email,
-  String? nickname,
-  String? profileImg,
-  String? token,
-  String? error})> kakaologin() async {
-    final uri = Uri.parse('http://192.168.0.104:8080/api/kakao/login');
+  Future<LoginResult> kakaologin() async {
+    final uri = Uri.parse('$baseUrl/api/kakao/login');
     try {
       //카카오 SDK로 로그인 시도
       OAuthToken token;
       if (await isKakaoTalkInstalled()) {
         token = await UserApi.instance.loginWithKakaoTalk();
+        print('카카오톡으로 로그인');
       } else {
         token = await UserApi.instance.loginWithKakaoAccount();
+        print('카카오계정으로 로그인');
       }
 
-      print('Kakao accessToken: ${token.accessToken}');
+      print('카카오 accessToken: ${token.accessToken}');
 
       //10초내에 응답을 못받으면 종료
       final res = await _client.post(
         uri,
         body: {'accessToken': token.accessToken},
-      )
-          .timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 10));
 
-      if(res.statusCode == 200) {
-        final map = jsonDecode(res.body) as Map<String, dynamic>;
-        String token = (map['token'] ?? '').toString();
-        final emailId = (map['email'] ?? '알수없음').toString();
-        final name = (map['nickname'] ?? '알수없음').toString();
-        final profileUrl = (map['profileImg'] ?? '-').toString();
-        return (ok: true, email: emailId, nickname: name, profileImg: profileUrl, token: token, error: null);
+      print('Status: ${res.statusCode}');
+      print('Body: ${res.body}');
+
+      if (res.statusCode == 200) {
+        print('로그인 성공');
+        final map = jsonDecode(res.body);
+        return LoginResult(
+          ok: true,
+          email: map['email']?.toString(),
+          nickname: map['nickname']?.toString(),
+          profileImg: makeImgUrl(map['profileImg']?.toString() ?? ''),
+          token: map['token']?.toString(),
+        );
       } else {
-        String? msg;
-        try {
-          final map = jsonDecode(res.body) as Map<String, dynamic>;
-          msg = (map['message'] ?? map['error'])?.toString();
-        } catch (_) {}
-        return (ok: false, email: null, nickname: null, profileImg: null, token: null, error: msg ?? '로그인에 실패했습니다.');
+        final map = jsonDecode(res.body);
+        return LoginResult(
+          ok: false,
+          error: (map['message'] ?? map['error'])?.toString() ?? '카카오 로그인 실패',
+        );
       }
     } on TimeoutException {
-      return (ok: false, email: null, nickname: null, profileImg: null, token: null, error: '서버 응답이 지연되고 있습니다.');
-    } catch(_) {
-      return (ok: false, email: null, nickname: null, profileImg: null, token: null, error: '네트워크 오류가 발생했습니다.');
+      return LoginResult(ok: false, error: '서버 응답 지연');
+    } catch (e) {
+      return LoginResult(ok: false, error: '네트워크 오류: $e');
     }
   }
 
   Future<void> logout() async {
-    final uri = Uri.parse('http://192.168.0.104:8080/api/user/logout');
+    final uri = Uri.parse('$baseUrl/api/user/logout');
     try {
       //6초 안에 응답하지 않으면 종료
       await _client.post(uri).timeout(const Duration(seconds: 6));
@@ -118,55 +133,138 @@ class ApiClient {
   }
 
   Future<bool> isAuthenticated() async {
-    final uri = Uri.parse('http://192.168.0.104:8080/api/user/session');
+    final uri = Uri.parse('$baseUrl/api/user/session');
     try {
-      final res = await _client.get(uri).timeout(const Duration(seconds: 6));
+      final res = await _client.get(
+          uri,
+          headers: {"Content-Type": "application/json"}
+      ).timeout(const Duration(seconds: 6));
       return res.statusCode == 200;
     } catch(_) {
       return false;
     }
   }
 
-  // WebSocket 연결
-  WebSocketChannel connectChatWebSocket(String token) {
-    // 서버 주소. ws:// 또는 wss://로 시작해야 함
-    final uri = Uri.parse('ws://192.168.0.104:8080/ws-flutter');
-    final wsUri = uri.replace(queryParameters: {'token': token});
-    return WebSocketChannel.connect(wsUri);
-  }
+  String? makeImgUrl(String? path) {
+    if(path == null || path == '-' || path.isEmpty) return null;
 
-  Future<List<dynamic>> getChatRooms(String token) async {
-    final uri = Uri.parse('http://192.168.0.104:8080/api/chat/rooms');
-    try {
-      final res = await _client.get(
-        uri,
-        headers: {
-          'Authorization': 'Bearer $token', // ← 여기 추가
-        },
-      ).timeout(const Duration(seconds: 8));
-      if (res.statusCode == 200) {
-        return jsonDecode(res.body) as List<dynamic>;
-      } else {
-        return [];
-      }
-    } catch (_) {
-      return [];
+    //사진이 링크로 되어있으면 그대로
+    if(path.startsWith('http')) {
+      return path;
+    } else if (path.startsWith('/img/')) {
+      //img/ 어쩌구 저장소로 되어있으면 서버 url로
+      String cleanedPath = path.split('?t')[0]; // ? 이전까지만
+      return 'https://github.com/TJ-academy/sweethome/blob/main/src/main/resources/static$cleanedPath?raw=true';
     }
+    return path;
   }
 
-  Future<Map<String, dynamic>?> getChatRoomDetail(int roomId, String token) async {
-    final uri = Uri.parse('http://192.168.0.104:8080/api/chat/rooms/$roomId');
-    try {
-      final res = await _client.get(
-        uri,
-        headers: {
-          'Authorization': 'Bearer $token', // ← 여기 추가
+  void connectWebSocket({
+    required String token,
+    required Function(Map<String, dynamic>) onMessage}) {
+    print("이것 뭐에요?");
+    _stompClient = StompClient(
+      config: StompConfig(
+        url: "ws://192.168.0.104:8080/ws-flutter?token=$token",
+        //url: "ws://homesweethome.koyeb.app/ws-flutter?token=$token",
+        onConnect: (StompFrame frame) {
+          print("✅ STOMP 연결 성공");
+
+          // 예시: 기본 구독
+          _stompClient!.subscribe(
+            destination: "/topic/chat",
+            callback: (frame) {
+              if (frame.body != null) {
+                final msg = jsonDecode(frame.body!);
+                onMessage(msg);
+              }
+            },
+          );
         },
-      ).timeout(const Duration(seconds: 8));
-      if (res.statusCode == 200) {
-        return jsonDecode(res.body);
-      }
-    } catch (_) {}
-    return null;
+        onStompError: (frame) => print("STOMP 오류: ${frame.body}"),
+        onWebSocketError: (error) => print("웹소켓 오류: $error"),
+        onDisconnect: (frame) => print("STOMP 연결 종료"),
+        stompConnectHeaders: {'Authorization': 'Bearer $token'},
+        webSocketConnectHeaders: {'Authorization': 'Bearer $token'},
+      ),
+    );
+    _stompClient!.activate();
+  }
+
+  void subscribeRoom(int roomId, Function(Map<String, dynamic>) onMessage) {
+    _stompClient?.subscribe(
+      destination: "/topic/chat/$roomId",
+      callback: (frame) {
+        if (frame.body != null) {
+          final msg = jsonDecode(frame.body!);
+          onMessage(msg);
+        }
+      },
+    );
+  }
+
+  void sendMessage(Map<String, dynamic> message) {
+    print("api까지 들어옴");
+    _stompClient?.send(
+      destination: "/app/api/message/send",
+      body: jsonEncode(message),
+    );
+  }
+
+  void disconnect() {
+    _stompClient?.deactivate();
+  }
+
+  Map<String, dynamic> parseMessage(String body) {
+    // 🔹 새로 추가됨: STOMP 메시지 파싱
+    final data = json.decode(body);
+    return {
+      'roomId': data['roomId'],
+      'content': data['content'],
+      'createdAt': data['createdAt'],
+    };
+  }
+
+  Future<List<Map<String, dynamic>>> fetchChatRooms(String token) async {
+    final uri = Uri.parse("$baseUrl/api/chat/rooms");
+    final res = await http.get(uri, headers: {
+      "Authorization": "Bearer $token",
+    });
+    if (res.statusCode != 200) throw Exception("채팅방 목록 로드 실패");
+    return List<Map<String, dynamic>>.from(jsonDecode(res.body));
+  }
+
+  Future<Map<String, dynamic>> fetchChatRoomDetail(int roomId, String token) async {
+    final uri = Uri.parse("$baseUrl/api/chat/rooms/$roomId");
+    final res = await http.get(uri, headers: {
+      "Authorization": "Bearer $token",
+    });
+    if (res.statusCode != 200) throw Exception("채팅방 메시지 로드 실패");
+    return Map<String, dynamic>.from(jsonDecode(res.body));
+  }
+
+  Future<String> uploadImage(int roomId, String token, String path) async {
+    final uri = Uri.parse("$baseUrl/api/chat/uploadImage");
+    final request = http.MultipartRequest("POST", uri)
+      ..headers["Authorization"] = "Bearer $token"
+      ..fields["roomId"] = roomId.toString()
+      ..files.add(await http.MultipartFile.fromPath("image", path));
+
+    final response = await request.send();
+    final body = await response.stream.bytesToString();
+
+    if (response.statusCode != 200) {
+      throw Exception("이미지 업로드 실패: ${response.statusCode} ${body}");
+    }
+
+    final data = jsonDecode(body);
+    return data["imgUrl"];
+  }
+
+  Future<void> updateLastRead(int roomId, int msgId, String token) async {
+    final uri = Uri.parse("$baseUrl/api/chat/updateLastRead?roomId=$roomId&msgId=$msgId");
+    await http.post(uri, headers: {
+      "Authorization": "Bearer $token",
+    });
   }
 }

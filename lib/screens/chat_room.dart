@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../api_client.dart';
 
@@ -10,11 +12,6 @@ class ChatRoomPage extends StatefulWidget {
   final String myEmail;
   final String myNickname;
   final String token;
-  // final String otherEmail;
-  // final String otherNickname;
-  // final String otherProfileImg;
-  // final int lastRead;
-  // final List<dynamic> messages;
 
   const ChatRoomPage({
     super.key,
@@ -23,11 +20,6 @@ class ChatRoomPage extends StatefulWidget {
     required this.myEmail,
     required this.myNickname,
     required this.token,
-    // required this.otherEmail,
-    // required this.otherNickname,
-    // required this.otherProfileImg,
-    // required this.lastRead,
-    // required this.messages,
   });
 
   @override
@@ -35,78 +27,57 @@ class ChatRoomPage extends StatefulWidget {
 }
 
 class _ChatRoomPageState extends State<ChatRoomPage> {
-  Map<String, dynamic>? chatData;
+  //Map<String, dynamic>? chatData;
   final TextEditingController _controller = TextEditingController();
-  final ScrollController _scrollController = ScrollController();
-  late WebSocketChannel channel;
+  final ScrollController _scroll = ScrollController();
+  // late WebSocketChannel channel;
   bool loading = true;
+  final ImagePicker _picker = ImagePicker();
+  List<Map<String, dynamic>> _messages = [];
+  String? otherEmail;
+  String? otherNickname;
+  String? otherProfileImg;
 
   @override
   void initState() {
     super.initState();
-    _loadMessages();
-    _connectWebSocket();
+    // _loadMessages();
+    // _connectWebSocket();
+    _initChat();
   }
 
-  void _connectWebSocket() {
-    channel = widget.api.connectChatWebSocket(widget.myEmail); // token 필요
-    channel.stream.listen((event) {
-      final msg = jsonDecode(event);
-      if (msg['roomId'] == widget.roomId) {
-        setState(() {
-          chatData?['messages'].add(msg);
-        });
-        _scrollToBottom();
-      }
-    }, onError: (err) {
-      print('WebSocket error: $err');
-    });
-  }
-
-  @override
-  void dispose() {
-    channel.sink.close();
-    _controller.dispose();
-    _scrollController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _loadMessages() async {
+  Future<void> _initChat() async {
     try {
-      final data = await widget.api.getChatRoomDetail(widget.roomId, widget.token);
+      final data = await widget.api.fetchChatRoomDetail(widget.roomId, widget.token);
       setState(() {
-        chatData = data;
+        _messages = List<Map<String, dynamic>>.from(data["messages"]);
+        otherEmail = data["otherEmail"];
+        otherNickname = data["otherNickname"];
+        otherProfileImg = data["otherProfileImg"];
         loading = false;
       });
 
-    } catch (e) {
-      setState(() {
-        loading = false;
+      // ✅ 실시간 구독
+      widget.api.subscribeRoom(widget.roomId, (msg) {
+        if (msg['roomId'] == widget.roomId) {
+          setState(() => _messages.add(msg));
+          _scrollToBottom();
+        }
       });
+
+      _scrollToBottom();
+    } catch(e) {
+      print("❌ 채팅방 로드 실패: $e");
+      setState(() => loading = false);
     }
-  }
-
-  // 메시지 수신
-  void _sendMessage() async {
-    String text = _controller.text.trim();
-    if (text.isEmpty) return;
-
-    final message = {
-      'roomId': widget.roomId,
-      'content': text,
-      'senderEmail': widget.myEmail,
-    };
-
-    channel.sink.add(jsonEncode(message));
-    _controller.clear();
-    _scrollToBottom();
   }
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
+      if (_scroll.hasClients) {
+        //_scroll.jumpTo(_scroll.position.maxScrollExtent);
+        _scroll.animateTo(
+          _scroll.position.maxScrollExtent,
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOut,
         );
@@ -114,70 +85,142 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
     });
   }
 
+  Future<void> _sendMessage({String content = "", String img = "-"}) async {
+    if (content.trim().isEmpty && img == "-") return;
+
+    print("_sendMessage 실행됨");
+
+    final msg = {
+      "roomId": widget.roomId,
+      "senderNickname": widget.myNickname,
+      "senderEmail": widget.myEmail,
+      "receiverEmail": otherEmail,
+      "content": content,
+      "img": img,
+    };
+    widget.api.sendMessage(msg);
+    _controller.clear();
+  }
+
+  Future<void> _sendImage() async {
+    final picked = await _picker.pickImage(source: ImageSource.gallery);
+    if (picked == null) return;
+
+    final imgUrl = await widget.api.uploadImage(widget.roomId, widget.token, picked.path);
+    await _sendMessage(img: imgUrl);
+  }
+
+  String _formatTime(String isoTime) {
+    final dt = DateTime.parse(isoTime);
+    return "${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}";
+  }
+
+
   @override
   Widget build(BuildContext context) {
-    if (loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    final messages = chatData?['messages'] ?? [];
-
     return Scaffold(
       appBar: AppBar(
-        title: Text(chatData?['otherNickname'] ?? '채팅방'),
+        title: Text(otherNickname ?? "채팅방"),
+        backgroundColor: const Color(0xFF4DB2FF),
       ),
-      body: Column(
+      body: loading
+          ? const Center(child:CircularProgressIndicator())
+          : Column(
         children: [
           Expanded(
-            child: ListView.builder(
-              //reverse: true, // 최신 메시지가 아래로
-              itemCount: messages.length,
-              itemBuilder: (context, index) {
-                final msg = messages[index];
-                final isMine = msg['senderEmail'] == widget.myEmail;
-                return Align(
-                  alignment: isMine
-                      ? Alignment.centerRight
-                      : Alignment.centerLeft,
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    margin:
-                    const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                    decoration: BoxDecoration(
-                      color: isMine
-                          ? Colors.lightBlueAccent.withOpacity(0.7)
-                          : Colors.grey[300],
-                      borderRadius: BorderRadius.circular(8),
+            child: ScrollConfiguration(
+              behavior: const ScrollBehavior().copyWith(
+                scrollbars: true, // 스크롤바 표시
+                dragDevices: {PointerDeviceKind.touch, PointerDeviceKind.mouse}, // 마우스와 터치 모두 가능
+              ),
+              child: ListView.builder(
+                controller: _scroll,
+                itemCount: _messages.length,
+                itemBuilder: (context, index) {
+                  final msg = _messages[index];
+                  final isMine = msg["senderEmail"] == widget.myEmail;
+                  return Align(
+                    alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        if(!isMine)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8.0),
+                            child: CircleAvatar(
+                              radius: 15,
+                              backgroundImage: otherProfileImg != null && otherProfileImg!.isNotEmpty
+                                  ? NetworkImage(widget.api.makeImgUrl(otherProfileImg!)!)
+                                  : AssetImage('assets/default_profile.png') as ImageProvider,
+                            ),
+                          ),
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(
+                              maxWidth: 250, // 메시지 박스 최대 너비
+                              minWidth: 50,  // 최소 너비
+                            ),
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(vertical: 4),
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: isMine ? const Color(0xFF4DB2FF) : Colors.grey[300],
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                                children: [
+                                  if (msg["img"] != null && msg["img"] != "-")
+                                    Image.network(widget.api.makeImgUrl(msg["img"])!, width: 200),
+                                  if (msg["content"] != null && msg["content"].trim().isNotEmpty)
+                                    Text(
+                                      msg["content"],
+                                      softWrap: true,
+                                      style: TextStyle(
+                                        color: isMine ? Colors.white : Colors.black,
+                                      ),
+                                    ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _formatTime(msg["createdAt"] ?? DateTime.now().toString()),
+                                    style: const TextStyle(fontSize: 10, color: Colors.grey),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+
+                      ],
                     ),
-                    child: msg['img'] != '-' && msg['img'] != null
-                        ? Image.network(msg['img'], width: 200)
-                        : Text(msg['content'] ?? ''),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    decoration: const InputDecoration(
-                        hintText: '메시지를 입력하세요'
-                    ),
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.image, color: Color(0xFF4DB2FF)),
+                onPressed: _sendImage,
+              ),
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  maxLines: 1,    //줄바꿈 대신 전송
+                  textInputAction: TextInputAction.send, // Enter로 전송
+                  decoration: const InputDecoration(
+                    hintText: "메시지를 입력하세요...",
+                    border: InputBorder.none,
                   ),
+                  onSubmitted: (val) => _sendMessage(content: val),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.send),
-                  onPressed: _sendMessage,
-                )
-              ],
-            ),
-          )
+              ),
+              IconButton(
+                icon: const Icon(Icons.send, color: Color(0xFF4DB2FF)),
+                onPressed: () => _sendMessage(content: _controller.text),
+              ),
+            ],
+          ),
         ],
       ),
     );

@@ -70,12 +70,15 @@ class _LoginState extends State<Login> {
             TextField(
               controller: emailCtrl,
               decoration: const InputDecoration(labelText: '이메일'),
+              textInputAction: TextInputAction.next, // 다음 입력 필드로 이동
             ),
             spacing,
             TextField(
               controller: pwCtrl,
               decoration: const InputDecoration(labelText: '비밀번호'),
               obscureText: true,  //암호 마스킹
+              textInputAction: TextInputAction.done, // 엔터를 '완료'로 설정
+              onSubmitted: (_) => _login(), // 엔터 치면 로그인 실행
             ),
             spacing,
             if(errorText != null)
