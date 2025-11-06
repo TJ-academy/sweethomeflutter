@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:kakao_flutter_sdk/kakao_flutter_sdk.dart';
 import 'package:sweethomeflutter/screens/chat_list.dart';
 import 'package:sweethomeflutter/screens/login.dart';
+import 'package:sweethomeflutter/screens/menu.dart';
 
 import 'api_client.dart';
 
@@ -53,7 +54,7 @@ class _HSHAppState extends State<HSHApp> {
     return MaterialApp(
       title: '홈스위트홈',
       debugShowCheckedModeBanner: false,
-      home: _booting
+      /*home: _booting
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
           : (_loggedIn
               ? ChatList(
@@ -63,7 +64,19 @@ class _HSHAppState extends State<HSHApp> {
                   token: _token,
                   onLoggedOut: _onLoggedOut,
                 )
-              : Login(api: api, onLoggedIn: _onLoggedIn)),
+              : Login(api: api, onLoggedIn: _onLoggedIn)),*/
+      home: _booting
+          ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+          : (_loggedIn
+          ? MenuPage(
+        api: api,
+        email: _email,
+        nickname: _nickname,
+        profileImg: _profileImg,
+        token: _token,
+        onLoggedOut: _onLoggedOut,
+      )
+          : Login(api: api, onLoggedIn: _onLoggedIn)),
     );
   }
 

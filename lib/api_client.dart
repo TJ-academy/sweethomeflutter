@@ -6,6 +6,11 @@ import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:stomp_dart_client/stomp_dart_client.dart';
 import 'package:web_socket_channel/io.dart';   //모바일용 WebSocket
 
+import 'package:sweethomeflutter/models/reservation.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:http/browser_client.dart' as browser;
+import 'models/home.dart';
+
 /// 로그인 결과 모델
 class LoginResult {
   final bool ok;
@@ -26,14 +31,24 @@ class LoginResult {
 }
 
 class ApiClient {
-  late final http.Client _client;
+  //late final http.Client _client;
   StompClient? _stompClient;
   //String? token;
+
+  late final http.Client _client;
   final String baseUrl;
 
-  ApiClient({this.baseUrl = "http://192.168.0.104:8080"})
-  //ApiClient({this.baseUrl = "http://homesweethome.koyeb.app/"})
-      : _client = http.Client();
+  ApiClient({this.baseUrl = "http://localhost:8080"}) {
+    //ApiClient({this.baseUrl = "http://homesweethome.koyeb.app/"})
+    //: _client = http.Client();
+    if (kIsWeb) {
+      final c = browser.BrowserClient();
+      c.withCredentials = true; // ✅ 세션 쿠키 전송
+      _client = c; // BaseClient 로 OK
+    } else {
+      _client = http.Client(); // BaseClient 로 OK
+    }
+  }
 
   Future<LoginResult> login(String email, String password) async {
     final uri = Uri.parse('$baseUrl/api/user/login');
@@ -148,14 +163,28 @@ class ApiClient {
   String? makeImgUrl(String? path) {
     if(path == null || path == '-' || path.isEmpty) return null;
 
-    //사진이 링크로 되어있으면 그대로
+    /*//사진이 링크로 되어있으면 그대로
     if(path.startsWith('http')) {
       return path;
     } else if (path.startsWith('/img/')) {
       //img/ 어쩌구 저장소로 되어있으면 서버 url로
       String cleanedPath = path.split('?t')[0]; // ? 이전까지만
       return 'https://github.com/TJ-academy/sweethome/blob/main/src/main/resources/static$cleanedPath?raw=true';
+    }*/
+
+    // 사진이 링크로 되어있으면 그대로 사용
+    if (path.startsWith('http')) {
+      return path;
     }
+
+    // 서버 static 경로에서 직접 불러오기
+    if (path.startsWith('/img/')) {
+      return '$baseUrl$path';
+    }
+
+    // 혹시 상대경로 형태면 직접 붙이기
+    return '$baseUrl/img/userProfile/$path';
+
     return path;
   }
 
@@ -165,7 +194,7 @@ class ApiClient {
     print("이것 뭐에요?");
     _stompClient = StompClient(
       config: StompConfig(
-        url: "ws://192.168.0.104:8080/ws-flutter?token=$token",
+        url: "ws://localhost:8080/ws-flutter?token=$token",
         //url: "ws://homesweethome.koyeb.app/ws-flutter?token=$token",
         onConnect: (StompFrame frame) {
           print("✅ STOMP 연결 성공");
@@ -266,5 +295,60 @@ class ApiClient {
     await http.post(uri, headers: {
       "Authorization": "Bearer $token",
     });
+  }
+
+  final Map<int, Home> _homeCache = {}; // 홈 단건 캐시
+
+  Future<Home> fetchHomeBrief(int id) async {
+    if (_homeCache.containsKey(id)) return _homeCache[id]!;
+
+    final uri = Uri.parse('$baseUrl/api/homes/$id'); // 단건 조회 엔드포인트
+    final res = await _client.get(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+    ).timeout(const Duration(seconds: 10));
+
+    if (res.statusCode != 200) {
+      throw Exception('숙소 정보 로드 실패: ${res.statusCode}');
+    }
+
+    final map = jsonDecode(res.body) as Map<String, dynamic>;
+    final home = Home.fromJson(map);
+    _homeCache[id] = home;
+    return home;
+  }
+}
+
+extension ReservationApi on ApiClient {
+  Future<List<Reservation>> fetchMyReservations() async {
+    final uri = Uri.parse('$baseUrl/api/reservations/my');
+    final res = await _client.get(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+    ).timeout(const Duration(seconds: 10));
+
+    if (res.statusCode != 200) {
+      throw Exception('예약 목록 로드 실패: ${res.statusCode}');
+    }
+
+    final data = jsonDecode(res.body) as List;
+    return data
+        .map((e) => Reservation.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
+
+  Future<Reservation> fetchReservationDetail(int reservationIdx) async {
+    final uri = Uri.parse('$baseUrl/api/reservations/$reservationIdx');
+    final res = await _client.get(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+    ).timeout(const Duration(seconds: 10));
+
+    if (res.statusCode != 200) {
+      throw Exception('예약 상세 로드 실패: ${res.statusCode}');
+    }
+
+    final map = jsonDecode(res.body);
+    return Reservation.fromJson(Map<String, dynamic>.from(map));
   }
 }
