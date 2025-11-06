@@ -27,10 +27,8 @@ class ChatRoomPage extends StatefulWidget {
 }
 
 class _ChatRoomPageState extends State<ChatRoomPage> {
-  //Map<String, dynamic>? chatData;
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scroll = ScrollController();
-  // late WebSocketChannel channel;
   bool loading = true;
   final ImagePicker _picker = ImagePicker();
   List<Map<String, dynamic>> _messages = [];
@@ -41,8 +39,6 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   @override
   void initState() {
     super.initState();
-    // _loadMessages();
-    // _connectWebSocket();
     _initChat();
   }
 
@@ -59,7 +55,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 
       // ✅ 실시간 구독
       widget.api.subscribeRoom(widget.roomId, (msg) {
-        if (msg['roomId'] == widget.roomId) {
+        if (mounted && msg['roomId'] == widget.roomId) {
           setState(() => _messages.add(msg));
           _scrollToBottom();
         }
@@ -75,7 +71,6 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scroll.hasClients) {
-        //_scroll.jumpTo(_scroll.position.maxScrollExtent);
         _scroll.animateTo(
           _scroll.position.maxScrollExtent,
           duration: const Duration(milliseconds: 200),
@@ -90,7 +85,8 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 
     print("_sendMessage 실행됨");
 
-    final msg = {
+    // 1. 서버 전송용 메시지 객체 생성 (API가 요구하는 형태)
+    final msgToSend = {
       "roomId": widget.roomId,
       "senderNickname": widget.myNickname,
       "senderEmail": widget.myEmail,
@@ -98,8 +94,27 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
       "content": content,
       "img": img,
     };
-    widget.api.sendMessage(msg);
+
+    // 2. STOMP 전송
+    widget.api.sendMessage(msgToSend);
+
+    // 3. ✅ 로컬 상태 업데이트용 객체 생성 (즉시 화면 표시를 위해 최소한의 키만 포함)
+    final now = DateTime.now().toIso8601String();
+    final localMsgForDisplay = {
+      "senderEmail": widget.myEmail, // isMine 판단용
+      "content": content,
+      "img": img,
+      "createdAt": now, // 즉시 표시용 임시 시간 (서버 시간과 약간의 오차는 감수)
+    };
+
+    // 4. ✅ 로컬 상태에 즉시 메시지 추가 (핵심 수정)
+    setState(() {
+      _messages.add(localMsgForDisplay);
+    });
+
+    // 5. 입력 필드 초기화 및 스크롤
     _controller.clear();
+    _scrollToBottom();
   }
 
   Future<void> _sendImage() async {
@@ -152,43 +167,52 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
                               radius: 15,
                               backgroundImage: otherProfileImg != null && otherProfileImg!.isNotEmpty
                                   ? NetworkImage(widget.api.makeImgUrl(otherProfileImg!)!)
-                                  : AssetImage('assets/default_profile.png') as ImageProvider,
+                                  : const AssetImage('assets/default_profile.png') as ImageProvider,
                             ),
                           ),
-                          ConstrainedBox(
-                            constraints: const BoxConstraints(
-                              maxWidth: 250, // 메시지 박스 최대 너비
-                              minWidth: 50,  // 최소 너비
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            maxWidth: 250, // 메시지 박스 최대 너비
+                            minWidth: 50,  // 최소 너비
+                          ),
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: isMine ? const Color(0xFF4DB2FF) : Colors.grey[300],
+                              borderRadius: BorderRadius.circular(10),
                             ),
-                            child: Container(
-                              margin: const EdgeInsets.symmetric(vertical: 4),
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: isMine ? const Color(0xFF4DB2FF) : Colors.grey[300],
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                                children: [
-                                  if (msg["img"] != null && msg["img"] != "-")
-                                    Image.network(widget.api.makeImgUrl(msg["img"])!, width: 200),
-                                  if (msg["content"] != null && msg["content"].trim().isNotEmpty)
-                                    Text(
-                                      msg["content"],
-                                      softWrap: true,
-                                      style: TextStyle(
-                                        color: isMine ? Colors.white : Colors.black,
-                                      ),
-                                    ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    _formatTime(msg["createdAt"] ?? DateTime.now().toString()),
-                                    style: const TextStyle(fontSize: 10, color: Colors.grey),
+                            child: Column(
+                              crossAxisAlignment: isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                              children: [
+                                if (msg["img"] != null && msg["img"] != "-")
+                                // ⚠️ 이미지를 로딩할 때 발생하는 오류를 대비해 에러 빌더 추가
+                                  Image.network(
+                                    widget.api.makeImgUrl(msg["img"])!,
+                                    width: 200,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      print("❌ 이미지 로딩 실패 (CORS 문제 예상): $error");
+                                      return const Text('이미지 로딩 실패 (CORS)');
+                                    },
                                   ),
-                                ],
-                              ),
+                                if (msg["content"] != null && msg["content"].trim().isNotEmpty)
+                                  Text(
+                                    msg["content"],
+                                    softWrap: true,
+                                    style: TextStyle(
+                                      color: isMine ? Colors.white : Colors.black,
+                                    ),
+                                  ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  // 'createdAt' 키가 없는 경우를 대비해 처리 (서버에서 받은 메시지는 이 키를 가짐)
+                                  _formatTime(msg["createdAt"] ?? DateTime.now().toString()),
+                                  style: const TextStyle(fontSize: 10, color: Colors.grey),
+                                ),
+                              ],
                             ),
                           ),
+                        ),
 
                       ],
                     ),

@@ -32,8 +32,16 @@ class ApiClient {
   final String baseUrl;
 
   ApiClient({this.baseUrl = "http://192.168.0.104:8080"})
-  //ApiClient({this.baseUrl = "http://homesweethome.koyeb.app/"})
+  //ApiClient({this.baseUrl = "http://homesweethome.koyeb.app"})
       : _client = http.Client();
+
+  // ✅ STOMP 클라이언트 접근자 (Getter) 추가
+  StompClient? get stompClient => _stompClient;
+
+  // ✅ STOMP 클라이언트 설정자 (Setter) 추가 (ChatList에서 사용)
+  void setStompClient(StompClient client) {
+    _stompClient = client;
+  }
 
   Future<LoginResult> login(String email, String password) async {
     final uri = Uri.parse('$baseUrl/api/user/login');
@@ -152,9 +160,9 @@ class ApiClient {
     if(path.startsWith('http')) {
       return path;
     } else if (path.startsWith('/img/')) {
-      //img/ 어쩌구 저장소로 되어있으면 서버 url로
-      String cleanedPath = path.split('?t')[0]; // ? 이전까지만
-      return 'https://github.com/TJ-academy/sweethome/blob/main/src/main/resources/static$cleanedPath?raw=true';
+      // ✅ 수정: 하드코딩된 IP(10.0.2.2:8080) 대신 설정된 baseUrl을 사용합니다.
+      String cleanedPath = path.split('?t')[0]; // ?t 이전까지만
+      return '$baseUrl$cleanedPath';
     }
     return path;
   }
@@ -165,8 +173,9 @@ class ApiClient {
     print("이것 뭐에요?");
     _stompClient = StompClient(
       config: StompConfig(
-        url: "ws://192.168.0.104:8080/ws-flutter?token=$token",
-        //url: "ws://homesweethome.koyeb.app/ws-flutter?token=$token",
+        // ✅ 수정: 보안 연결(WSS) 및 Koyeb 서버 URL 사용. 토큰은 헤더로 전달.
+        url: "wss://homesweethome.koyeb.app/ws-flutter",
+        // url: "ws://192.168.0.104:8080/ws-flutter", // 로컬 개발 시
         onConnect: (StompFrame frame) {
           print("✅ STOMP 연결 성공");
 
@@ -184,7 +193,7 @@ class ApiClient {
         onStompError: (frame) => print("STOMP 오류: ${frame.body}"),
         onWebSocketError: (error) => print("웹소켓 오류: $error"),
         onDisconnect: (frame) => print("STOMP 연결 종료"),
-        stompConnectHeaders: {'Authorization': 'Bearer $token'},
+        // ✅ 401 오류 해결을 위해 토큰을 헤더에 추가
         webSocketConnectHeaders: {'Authorization': 'Bearer $token'},
       ),
     );
@@ -205,6 +214,7 @@ class ApiClient {
 
   void sendMessage(Map<String, dynamic> message) {
     print("api까지 들어옴");
+    // ⚠️ 목적지(destination) 경로가 백엔드와 정확히 일치하는지 확인하세요.
     _stompClient?.send(
       destination: "/app/api/message/send",
       body: jsonEncode(message),
