@@ -352,3 +352,12 @@ extension ReservationApi on ApiClient {
     return Reservation.fromJson(Map<String, dynamic>.from(map));
   }
 }
+extension StompSupport on ApiClient {
+  void setStompClient(StompClient client) {
+    _stompClient = client;
+  }
+
+  StompClient? getStompClient() {
+    return _stompClient;
+  }
+}
