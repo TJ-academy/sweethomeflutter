@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:stomp_dart_client/stomp_dart_client.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
 import '../api_client.dart';
 import 'chat_room.dart';
 
@@ -28,7 +27,6 @@ class _ChatListState extends State<ChatList> {
   List<Map<String, dynamic>> chatRooms = [];
   bool _loading = true;
   late StompClient stompClient;
-  int? _openedRoomId;
 
   @override
   void initState() {
@@ -51,13 +49,9 @@ class _ChatListState extends State<ChatList> {
         _loading = false;
       });
 
-      // ✅ 채팅방 목록 로드가 완료된 후, 연결이 성공했다면 구독을 시작합니다.
-      // _onStompConnect에서 호출하거나, 연결 상태를 확인 후 여기서 호출할 수 있습니다.
-      // _onStompConnect에서 구독을 처리하는 것이 더 일반적이나, 여기서는 일단 연결 완료를 기다립니다.
       if (stompClient.connected) {
         _subscribeToChatRooms();
       }
-
     } catch (e) {
       print("❌ 채팅방 로드 실패: $e");
       setState(() => _loading = false);
@@ -65,39 +59,32 @@ class _ChatListState extends State<ChatList> {
   }
 
   void _connectStomp() {
-    // 1. 공용 서버에 연결할 때는 보안 연결을 위해 wss://를 사용합니다. (401 오류 방지)
     final String stompUrl = 'wss://homesweethome.koyeb.app/ws-flutter';
 
     stompClient = StompClient(
       config: StompConfig(
         url: stompUrl,
         onConnect: _onStompConnect,
-        onWebSocketError: (dynamic error) => print('채팅 리스트 웹소켓 에러: $error'),
+        onWebSocketError: (error) => print('채팅 리스트 웹소켓 에러: $error'),
         onDisconnect: (frame) => print('Disconnected'),
-        // 2. 401 Unauthorized 오류 해결을 위해 유효한 토큰을 헤더에 추가합니다.
         webSocketConnectHeaders: {
           'Authorization': 'Bearer ${widget.token}',
         },
       ),
     );
 
-    // 3. ChatRoomPage에서 메시지 전송에 사용할 수 있도록 ApiClient에 StompClient 인스턴스를 설정합니다.
-    // ⚠️ 이 함수(setStompClient)는 api_client.dart에 정의해야 합니다. (아래 2번 항목 참고)
     widget.api.setStompClient(stompClient);
-
     stompClient.activate();
   }
 
   void _onStompConnect(StompFrame frame) {
-    print("StompConnect 함수 실행 (연결 성공)");
-    // 채팅방 목록이 로드된 경우에만 구독을 시작합니다.
+    print("✅ STOMP 연결 성공");
     if (!_loading) {
       _subscribeToChatRooms();
     }
   }
 
   void _subscribeToChatRooms() {
-    // 내 이메일 기준으로 모든 방 메시지 수신
     for (var room in chatRooms) {
       final roomId = room['roomId'];
       stompClient.subscribe(
@@ -113,7 +100,8 @@ class _ChatListState extends State<ChatList> {
                 if (index != -1) {
                   chatRooms[index]['lastMessage'] = msg['content'];
                   chatRooms[index]['lastMessageTime'] = msg['createdAt'];
-                  chatRooms[index]['unreadCount'] = (chatRooms[index]['unreadCount'] ?? 0) + 1;
+                  chatRooms[index]['unreadCount'] =
+                      (chatRooms[index]['unreadCount'] ?? 0) + 1;
                 }
               });
             }
@@ -130,7 +118,7 @@ class _ChatListState extends State<ChatList> {
     } catch (e) {
       print("Logout failed: $e");
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('로그아웃에 실패했습니다.'))
+        const SnackBar(content: Text('로그아웃에 실패했습니다.')),
       );
     }
   }
@@ -138,8 +126,10 @@ class _ChatListState extends State<ChatList> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF2F6FA),
       appBar: AppBar(
         title: const Text("채팅 목록"),
+        centerTitle: true,
         backgroundColor: const Color(0xFF4DB2FF),
         actions: [
           IconButton(
@@ -149,57 +139,87 @@ class _ChatListState extends State<ChatList> {
         ],
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFF4DB2FF)))
           : chatRooms.isEmpty
           ? const Center(child: Text("채팅방이 없습니다."))
           : ListView.builder(
+        padding: const EdgeInsets.all(10),
         itemCount: chatRooms.length,
         itemBuilder: (context, index) {
           final room = chatRooms[index];
-          return ListTile(
-            leading: CircleAvatar(
-              backgroundImage: room['profileImg'] != null && room['profileImg'].isNotEmpty
-                  ? NetworkImage(widget.api.makeImgUrl(room['profileImg'])!)
-                  : const AssetImage('assets/default_profile.png') as ImageProvider,
+          return Card(
+            color: Colors.white,
+            elevation: 3,
+            shadowColor: Colors.grey.withOpacity(0.2),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
             ),
-            title: Text(room['roomName'] ?? '알수없음'),
-            subtitle: Text(room['lastMessage'] ?? '-'),
-            trailing: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  room["lastMessageTime"] ?? "",
-                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+            margin: const EdgeInsets.symmetric(vertical: 6),
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              leading: CircleAvatar(
+                radius: 24,
+                backgroundImage: room['profileImg'] != null &&
+                    room['profileImg'].isNotEmpty
+                    ? NetworkImage(widget.api.makeImgUrl(room['profileImg'])!)
+                    : const AssetImage('assets/default_profile.png')
+                as ImageProvider,
+              ),
+              title: Text(
+                room['roomName'] ?? '알 수 없음',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
                 ),
-                if (room["unreadCount"] != null && room["unreadCount"] > 0)
-                  Container(
-                    margin: const EdgeInsets.only(top: 4),
-                    padding: const EdgeInsets.all(6),
-                    decoration: const BoxDecoration(
-                      color: Colors.red,
-                      shape: BoxShape.circle,
+              ),
+              subtitle: Text(
+                room['lastMessage'] ?? '',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.grey),
+              ),
+              trailing: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    room["lastMessageTime"] ?? "",
+                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                  if (room["unreadCount"] != null &&
+                      room["unreadCount"] > 0)
+                    Container(
+                      margin: const EdgeInsets.only(top: 4),
+                      padding: const EdgeInsets.all(4), // overflow 수정 ✅
+                      decoration: const BoxDecoration(
+                        color: Colors.red,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        "${room["unreadCount"]}",
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
-                    child: Text(
-                      "${room["unreadCount"]}",
-                      style: const TextStyle(color: Colors.white, fontSize: 11),
+                ],
+              ),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ChatRoomPage(
+                      api: widget.api,
+                      roomId: room['roomId'],
+                      myEmail: widget.email,
+                      myNickname: widget.nickname,
+                      token: widget.token,
                     ),
                   ),
-              ],
+                );
+              },
             ),
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => ChatRoomPage(
-                    api: widget.api,
-                    roomId: room['roomId'],
-                    myEmail: widget.email,
-                    myNickname: widget.nickname,
-                    token: widget.token,
-                  ),
-                ),
-              );
-            },
           );
         },
       ),
